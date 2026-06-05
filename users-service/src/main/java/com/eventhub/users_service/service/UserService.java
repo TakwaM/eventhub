@@ -5,6 +5,8 @@ import com.eventhub.users_service.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PathVariable;
 import java.util.List;
 
 @Service
@@ -37,5 +39,10 @@ public class UserService {
             throw new RuntimeException("User not found");
         }
         userRepository.deleteById(id);
+    }
+
+    public User getUserById(Long id) {
+        return userRepository.findById(id)
+            .orElseThrow(() -> new IllegalArgumentException("User not found with id: " + id));
     }
 }

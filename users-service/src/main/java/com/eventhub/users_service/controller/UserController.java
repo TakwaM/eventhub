@@ -4,6 +4,7 @@ import com.eventhub.users_service.model.User;
 import com.eventhub.users_service.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.ResponseEntity;
 
 import java.util.List;
 
@@ -31,6 +32,16 @@ public class UserController {
     @DeleteMapping("/{id}")
     public void delete(@PathVariable Long id) {
         userService.deleteUser(id);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<User> getById(@PathVariable Long id) {
+    try {
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(user);
+    } catch (IllegalArgumentException ex) {
+        return ResponseEntity.notFound().build();
+      }
     }
 
 }
