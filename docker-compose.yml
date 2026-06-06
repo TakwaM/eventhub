@@ -1,0 +1,153 @@
+version: "3.9"
+
+services:
+
+  # -------------------------
+  # DATABASES & BROKERS
+  # -------------------------
+
+  postgres:
+    image: postgres:15
+    container_name: eventhub-postgres
+    environment:
+      POSTGRES_USER: eventhub_user
+      POSTGRES_PASSWORD: eventhub123
+      POSTGRES_DB: eventhub-users
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventhub_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - eventhub-net
+
+  mongodb:
+    image: mongo:6
+    container_name: eventhub-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - eventhub-net
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: eventhub-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    restart: unless-stopped
+    networks:
+      - eventhub-net
+
+  # -------------------------
+  # DISCOVERY SERVER
+  # -------------------------
+
+  discovery-server:
+    build: ./discovery-server
+    container_name: discovery-server
+    ports:
+      - "8761:8761"
+    restart: unless-stopped
+    networks:
+      - eventhub-net
+
+  # -------------------------
+  # MICROSERVICES
+  # -------------------------
+
+  users-service:
+    build: ./users-service
+    container_name: users-service
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - discovery-server
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - WAIT_TIMEOUT=120
+    restart: unless-stopped
+    networks:
+      - eventhub-net
+
+  events-service:
+    build: ./events-service
+    container_name: events-service
+    ports:
+      - "8081:8081"
+    depends_on:
+      - postgres
+      - discovery-server
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - WAIT_TIMEOUT=120
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/eventhub_events
+      - SPRING_DATASOURCE_USERNAME=eventhub_user
+      - SPRING_DATASOURCE_PASSWORD=eventhub123
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - SPRING_JPA_DATABASE_PLATFORM=org.hibernate.dialect.PostgreSQLDialect
+    restart: unless-stopped
+    networks:
+      - eventhub-net
+
+  reservations-service:
+    build: ./reservations-service
+    container_name: reservations-service
+    ports:
+      - "8082:8082"
+    depends_on:
+      - postgres
+      - mongodb
+      - discovery-server
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - WAIT_TIMEOUT=120
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/eventhub_reservations
+      - SPRING_DATASOURCE_USERNAME=eventhub_user
+      - SPRING_DATASOURCE_PASSWORD=eventhub123
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - SPRING_JPA_DATABASE_PLATFORM=org.hibernate.dialect.PostgreSQLDialect
+    restart: unless-stopped
+    networks:
+      - eventhub-net
+
+  notifications-service:
+    build: ./notifications-service
+    container_name: notifications-service
+    ports:
+      - "8085:8085"
+    depends_on:
+      - rabbitmq
+      - mongodb
+      - discovery-server
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - WAIT_TIMEOUT=120
+    restart: unless-stopped
+    networks:
+      - eventhub-net
+
+# -------------------------
+# NETWORKS & VOLUMES
+# -------------------------
+
+networks:
+  eventhub-net:
+
+volumes:
+  postgres_data:
+  mongo_data:
