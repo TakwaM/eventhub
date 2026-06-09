@@ -43,5 +43,10 @@ public class UserController {
         return ResponseEntity.notFound().build();
       }
     }
+    
+    @GetMapping("/test")
+    public String test() {
+        return "Hello from Users-Service";
+    }
 
 }

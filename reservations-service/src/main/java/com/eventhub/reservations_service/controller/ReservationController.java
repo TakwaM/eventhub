@@ -21,6 +21,8 @@ import java.util.List;
 public class ReservationController {
 
     private final ReservationService reservationService;
+    private final EventClient eventClient;
+    private final UserClient userClient;
 
     @GetMapping
     public List<Reservation> getAll() {
@@ -47,16 +49,19 @@ public class ReservationController {
         reservationService.deleteReservation(id);
     }
 
-     @GetMapping("/test")
+    @GetMapping("/test")
     public String test() {
         return "RESERVATIONS OK";
     }
 
-    @GetMapping("/test-rest")
-    public ResponseEntity<String> testRest(@RequestHeader(value = "Authorization", required = false) String auth) {
-        System.out.println("test-rest incoming Authorization header: " + auth);
-        return ResponseEntity.ok("test-rest OK");
-    }
+@GetMapping("/test-rest")
+public ResponseEntity<EventDTO> testRest() {
+    EventDTO event = eventClient.getEventById(1L);
+    return ResponseEntity.ok(event);
+}
 
+
+    
+    
    
 }
