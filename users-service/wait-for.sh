@@ -1,20 +1,28 @@
 #!/bin/sh
-# usage: ./wait-for.sh host:port -- command args...
-hostport="$1"
-shift
-host=$(echo "$hostport" | cut -d: -f1)
-port=$(echo "$hostport" | cut -d: -f2)
-timeout=${WAIT_TIMEOUT:-60}
+set -e
 
-while ! nc -z "$host" "$port"; do
-  timeout=$((timeout-1))
-  if [ "$timeout" -le 0 ]; then
-    echo "Timeout waiting for $host:$port"
-    exit 1
-  fi
-  echo "Waiting for $host:$port ..."
+# Usage: /wait-for.sh host [port] -- command args...
+HOST="$1"
+PORT="${2:-5432}"
+
+shift 2
+if [ "$1" = "--" ]; then
+  shift
+fi
+
+echo "Waiting for $HOST:$PORT..."
+
+until nc -z "$HOST" "$PORT"; do
+  echo "Waiting for $HOST:$PORT..."
   sleep 1
 done
 
-echo "$host:$port is available - launching command"
+echo "Waiting for Config Server at config-server:8888/actuator/health..."
+until wget -qO- http://config-server:8888/actuator/health 2>/dev/null | grep -q '"status":"UP"'; do
+  echo "Config Server not ready yet..."
+  sleep 1
+done
+
+echo "Dependencies ready — launching command:"
+echo "$@"
 exec "$@"

@@ -18,7 +18,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U eventhub_user"]
+      test: ["CMD-SHELL", "pg_isready -U eventhub_user -d eventhub-users"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -34,7 +34,7 @@ services:
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD-SHELL", "mongosh --eval \"db.adminCommand('ping')\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -61,7 +61,77 @@ services:
     container_name: discovery-server
     ports:
       - "8761:8761"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8761/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
+    depends_on:
+      config-server:
+        condition: service_healthy
+    networks:
+      - eventhub-net
+
+  # -------------------------
+  # CONFIG SERVER
+  # -------------------------
+
+  config-server:
+    build:
+      context: ./config-server
+      dockerfile: Dockerfile
+    container_name: config-server
+    ports:
+      - "8888:8888"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8888/actuator/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    environment:
+      SPRING_PROFILES_ACTIVE: "native"
+      SPRING_CLOUD_CONFIG_SERVER_NATIVE_SEARCH_LOCATIONS: "file:./config-repo"
+    volumes:
+      - ./config-repo:/app/config-repo
+    networks:
+      - eventhub-net
+    depends_on:
+      - postgres
+      - mongodb
+
+  # -------------------------
+  # KEYCLOAK
+  # -------------------------
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:22.0
+    container_name: keycloak
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8180:8080"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+    networks:
+      - eventhub-net
+
+  # -------------------------
+  # API GATEWAY
+  # -------------------------
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "8088:8088"
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_started
     networks:
       - eventhub-net
 
@@ -77,9 +147,7 @@ services:
     depends_on:
       - postgres
       - discovery-server
-    environment:
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
-      - WAIT_TIMEOUT=120
+      - config-server
     restart: unless-stopped
     networks:
       - eventhub-net
@@ -92,14 +160,10 @@ services:
     depends_on:
       - postgres
       - discovery-server
+      - config-server
     environment:
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
-      - WAIT_TIMEOUT=120
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/eventhub_events
-      - SPRING_DATASOURCE_USERNAME=eventhub_user
-      - SPRING_DATASOURCE_PASSWORD=eventhub123
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - SPRING_JPA_DATABASE_PLATFORM=org.hibernate.dialect.PostgreSQLDialect
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: "http://discovery-server:8761/eureka/"
+      WAIT_TIMEOUT: "120"
     restart: unless-stopped
     networks:
       - eventhub-net
@@ -110,17 +174,19 @@ services:
     ports:
       - "8082:8082"
     depends_on:
-      - postgres
-      - mongodb
-      - discovery-server
+      postgres:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
     environment:
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
-      - WAIT_TIMEOUT=120
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/eventhub_reservations
-      - SPRING_DATASOURCE_USERNAME=eventhub_user
-      - SPRING_DATASOURCE_PASSWORD=eventhub123
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - SPRING_JPA_DATABASE_PLATFORM=org.hibernate.dialect.PostgreSQLDialect
+      SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8888"
+      SPRING_APPLICATION_JSON: '{"logging":{"level":{"org.springframework.cloud.config.client":"DEBUG","org.springframework.cloud":"DEBUG","org.springframework.boot.context.config":"DEBUG"}}}'
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: "http://discovery-server:8761/eureka/"
+      WAIT_TIMEOUT: "120"
     restart: unless-stopped
     networks:
       - eventhub-net
@@ -134,9 +200,10 @@ services:
       - rabbitmq
       - mongodb
       - discovery-server
+      - config-server
     environment:
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
-      - WAIT_TIMEOUT=120
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: "http://discovery-server:8761/eureka/"
+      WAIT_TIMEOUT: "120"
     restart: unless-stopped
     networks:
       - eventhub-net
@@ -151,3 +218,4 @@ networks:
 volumes:
   postgres_data:
   mongo_data:
+  keycloak_data:

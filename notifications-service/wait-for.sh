@@ -9,10 +9,8 @@ set -e
 arg1="$1"
 arg2="$2"
 
-# default port
 DEFAULT_PORT=5432
 
-# if arg1 contains colon, split
 case "$arg1" in
   *:*)
     host="${arg1%%:*}"
@@ -21,7 +19,6 @@ case "$arg1" in
     ;;
   *)
     host="$arg1"
-    # if second arg is numeric and not "--", treat as port
     if [ -n "$arg2" ] && echo "$arg2" | grep -qE '^[0-9]+$'; then
       port="$arg2"
       shift 2
@@ -37,4 +34,12 @@ if [ "$1" = "--" ]; then
   shift
 fi
 
+echo "Waiting for $host:$port to be ready..."
+
+# loop until port is open
+while ! nc -z "$host" "$port"; do
+  sleep 1
+done
+
+echo "$host:$port is up!"
 exec "$@"

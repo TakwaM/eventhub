@@ -1,8 +1,0 @@
-spring:
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          issuer-uri: http://localhost:8180/realms/eventhub
-          authorities-claim-name: realm_access.roles
-          authority-prefix: ROLE_

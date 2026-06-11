@@ -1,29 +1,28 @@
 #!/bin/sh
+set -e
 
-wait_for() {
-  hostport="$1"
-  host=$(echo "$hostport" | cut -d: -f1)
-  port=$(echo "$hostport" | cut -d: -f2)
-  timeout=${WAIT_TIMEOUT:-60}
+# Usage: /wait-for.sh host [port] -- command args...
+HOST="$1"
+PORT="${2:-5432}"
 
-  echo "Waiting for $host:$port ..."
-  while ! nc -z "$host" "$port"; do
-    timeout=$((timeout-1))
-    if [ "$timeout" -le 0 ]; then
-      echo "Timeout waiting for $host:$port"
-      exit 1
-    fi
-    sleep 1
-  done
-  echo "$host:$port is available."
-}
+shift 2
+if [ "$1" = "--" ]; then
+  shift
+fi
 
-# attendre Postgres
-wait_for "postgres:5432"
+echo "Waiting for $HOST:$PORT..."
 
-# attendre MongoDB
-wait_for "mongodb:27017"
+until nc -z "$HOST" "$PORT"; do
+  echo "Waiting for $HOST:$PORT..."
+  sleep 1
+done
 
-# lancer l'application
-echo "Launching application..."
+echo "Waiting for Config Server at config-server:8888/actuator/health..."
+until wget -qO- http://config-server:8888/actuator/health 2>/dev/null | grep -q '"status":"UP"'; do
+  echo "Config Server not ready yet..."
+  sleep 1
+done
+
+echo "Dependencies ready — launching command:"
+echo "$@"
 exec "$@"

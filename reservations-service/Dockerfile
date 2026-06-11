@@ -15,4 +15,4 @@ RUN chmod +x /wait-for.sh
 EXPOSE 8082
 
 # attendre Postgres + MongoDB puis lancer Spring Boot
-CMD ["/wait-for.sh", "--", "java", "-jar", "/app/app.jar"]
+CMD ["/wait-for.sh","postgres","5432","--","java","-jar","/app/app.jar"]

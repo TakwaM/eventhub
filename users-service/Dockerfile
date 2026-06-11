@@ -10,4 +10,4 @@ RUN chmod +x /wait-for.sh
 
 EXPOSE 8080
 
-CMD ["/wait-for.sh","postgres","--","java","-jar","/app/app.jar"]
+CMD ["/wait-for.sh","postgres","5432","--","java","-jar","/app/app.jar"]
