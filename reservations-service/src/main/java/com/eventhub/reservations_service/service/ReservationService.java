@@ -90,4 +90,8 @@ public class ReservationService {
 
         return response;
     }
+
+    public List<Reservation> getReservationsByUserId(Long userId) {
+        return reservationRepository.findByUserId(userId);
+    }
 }

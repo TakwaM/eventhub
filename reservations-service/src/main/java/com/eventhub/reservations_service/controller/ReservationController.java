@@ -16,7 +16,7 @@ import com.eventhub.reservations_service.dto.ReservationResponse;
 import java.util.List;
 
 @RestController
-@RequestMapping("/reservations")
+@RequestMapping("/admin")
 @RequiredArgsConstructor
 public class ReservationController {
 

@@ -1,0 +1,103 @@
+package com.eventhub.api_gateway.config;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
+import reactor.core.publisher.Mono;
+
+import java.util.Optional;
+
+@Configuration
+public class DebugWebFilterConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(DebugWebFilterConfig.class);
+
+    // Ordre élevé pour s'exécuter AVANT la plupart des filtres (y compris sécurité)
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public WebFilter debugPathAndPrincipalFilter() {
+        return (exchange, chain) -> {
+            try {
+                logRequestInfo(exchange);
+            } catch (Exception e) {
+                log.error("Error while logging request info", e);
+            }
+
+            // On récupère le principal (si déjà authentifié) et on loggue ensuite
+            return exchange.getPrincipal()
+                    .doOnNext(principal -> {
+                        try {
+                            logPrincipalInfo(principal, exchange);
+                        } catch (Exception e) {
+                            log.error("Error while logging principal info", e);
+                        }
+                    })
+                    .switchIfEmpty(Mono.fromRunnable(() -> log.info("🔍 PRINCIPAL = <none>")))
+                    .then(chain.filter(exchange));
+        };
+    }
+
+    private void logRequestInfo(ServerWebExchange exchange) {
+        String method = Optional.ofNullable(exchange.getRequest().getMethod()).map(Object::toString).orElse("<unknown>");
+        String path = exchange.getRequest().getPath().value();
+        String host = Optional.ofNullable(exchange.getRequest().getURI()).map(uri -> uri.getHost()).orElse("<unknown-host>");
+        String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
+
+        // Masquer le token pour la sécurité des logs
+        String maskedAuth = (authHeader == null) ? "<none>" : maskAuthHeader(authHeader);
+
+        // Récupérer l'id de la route Gateway si présent
+        Object routeObj = exchange.getAttribute(org.springframework.cloud.gateway.support.ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
+        String routeId = (routeObj != null) ? routeObj.toString() : "<no-gateway-route-attr>";
+
+        log.info("🔍 REQUEST {} {} (host={})", method, path, host);
+        log.info("🔍 GATEWAY ROUTE ATTR = {}", routeId);
+        log.info("🔍 AUTH HEADER = {}", maskedAuth);
+    }
+
+    private void logPrincipalInfo(java.security.Principal principal, ServerWebExchange exchange) {
+        if (principal == null) {
+            log.info("🔍 PRINCIPAL = <none>");
+            return;
+        }
+
+        log.info("🔍 PRINCIPAL = {}", principal.getName());
+        if (principal instanceof Authentication) {
+            Authentication auth = (Authentication) principal;
+            log.info("🔍 Authentication class = {}", auth.getClass().getSimpleName());
+            log.info("🔍 isAuthenticated = {}", auth.isAuthenticated());
+            log.info("🔍 Authorities = {}", auth.getAuthorities());
+            // Si c'est JwtAuthenticationToken, on peut logger les claims utiles
+            if (auth instanceof JwtAuthenticationToken) {
+                JwtAuthenticationToken jwtAuth = (JwtAuthenticationToken) auth;
+                try {
+                    Object realmAccess = jwtAuth.getToken().getClaims().get("realm_access");
+                    log.info("🔍 JWT realm_access claim = {}", realmAccess);
+                } catch (Exception e) {
+                    log.debug("No realm_access claim or error reading it", e);
+                }
+            }
+        } else {
+            log.info("🔍 Principal (non-Authentication) = {}", principal);
+        }
+    }
+
+    private String maskAuthHeader(String header) {
+        if (header == null) return "<none>";
+        if (!header.toLowerCase().startsWith("bearer ")) return "<non-bearer>";
+        String token = header.substring(7).trim();
+        if (token.length() <= 10) return "Bearer <short-token>";
+        // garder début et fin, masquer le milieu
+        String start = token.substring(0, 6);
+        String end = token.substring(token.length() - 6);
+        return "Bearer " + start + "..." + end;
+    }
+}

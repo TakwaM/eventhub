@@ -2,17 +2,20 @@ FROM eclipse-temurin:17-jdk-alpine
 
 WORKDIR /app
 
-# installer netcat pour le wait-for
-RUN apk add --no-cache netcat-openbsd
+# installer netcat et wget pour le wait script
+RUN apk add --no-cache netcat-openbsd wget
 
-# copier l'artefact (ajuste le nom si nécessaire)
+# copier l'artefact
 COPY target/notifications-service-0.0.1-SNAPSHOT.jar /app/app.jar
 
-# copier le script wait-for
+# copier le script wait-for et forcer conversion + permission
 COPY wait-for.sh /wait-for.sh
-RUN chmod +x /wait-for.sh
+RUN sed -i 's/\r$//' /wait-for.sh \
+ && awk 'NR==1{sub(/^\xef\xbb\xbf/,"")}{print}' /wait-for.sh > /wait-for.tmp \
+ && mv /wait-for.tmp /wait-for.sh \
+ && chmod 755 /wait-for.sh
 
 EXPOSE 8085
 
-# utiliser le script ; le script gère host, host:port ou host port
-CMD ["/wait-for.sh", "postgres", "--", "java", "-jar", "/app/app.jar"]
+# invoquer sh explicitement pour éviter les problèmes de shebang
+CMD ["sh","/wait-for.sh","postgres","--","java","-jar","/app/app.jar"]

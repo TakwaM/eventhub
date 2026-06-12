@@ -37,9 +37,19 @@ fi
 echo "Waiting for $host:$port to be ready..."
 
 # loop until port is open
-while ! nc -z "$host" "$port"; do
+until nc -z "$host" "$port"; do
+  echo "Waiting for $host:$port..."
   sleep 1
 done
 
 echo "$host:$port is up!"
+
+echo "Waiting for Config Server at config-server:8888/actuator/health..."
+until wget -qO- http://config-server:8888/actuator/health 2>/dev/null | grep -q '"status":"UP"'; do
+  echo "Config Server not ready yet..."
+  sleep 1
+done
+
+echo "Dependencies ready — launching command:"
+echo "$@"
 exec "$@"
