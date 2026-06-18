@@ -22,7 +22,7 @@ public class DebugWebFilterConfig {
 
     // Ordre élevé pour s'exécuter AVANT la plupart des filtres (y compris sécurité)
     @Bean
-    @Order(Ordered.HIGHEST_PRECEDENCE)
+    @Order(Ordered.HIGHEST_PRECEDENCE + 1)
     public WebFilter debugPathAndPrincipalFilter() {
         return (exchange, chain) -> {
             try {
@@ -44,6 +44,26 @@ public class DebugWebFilterConfig {
                     .then(chain.filter(exchange));
         };
     }
+
+    @Bean
+@Order(Ordered.HIGHEST_PRECEDENCE + 2)
+public WebFilter addUserIdHeaderFilter() {
+    return (exchange, chain) -> exchange.getPrincipal()
+        .flatMap(principal -> {
+            if (principal instanceof JwtAuthenticationToken jwtAuth) {
+                String userId = jwtAuth.getToken().getSubject();
+
+                // Injecter le header X-User-Id
+                ServerWebExchange mutated = exchange.mutate()
+                    .request(builder -> builder.header("X-User-Id", userId))
+                    .build();
+
+                return chain.filter(mutated);
+            }
+
+            return chain.filter(exchange);
+        });
+}
 
     private void logRequestInfo(ServerWebExchange exchange) {
         String method = Optional.ofNullable(exchange.getRequest().getMethod()).map(Object::toString).orElse("<unknown>");

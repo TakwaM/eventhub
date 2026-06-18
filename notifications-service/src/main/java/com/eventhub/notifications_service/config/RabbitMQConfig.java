@@ -7,15 +7,20 @@ import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class RabbitMQConfig {
 
-    public static final String QUEUE = "notifications_queue";
-    public static final String EXCHANGE = "notifications_exchange";
-    public static final String ROUTING_KEY = "notifications_routing_key";
+    public static final String QUEUE = "reservation.created.queue";
+    public static final String EXCHANGE = "reservations.exchange";
+    public static final String ROUTING_KEY = "reservation.created";
+
+    public static final String CANCEL_QUEUE = "reservation.cancelled.queue";
+    public static final String CANCEL_ROUTING_KEY = "reservation.cancelled";
+
 
     @Bean
     public Queue queue() {
@@ -28,21 +33,32 @@ public class RabbitMQConfig {
     }
 
     @Bean
-    public Binding binding(Queue queue, TopicExchange exchange) {
-        return BindingBuilder.bind(queue).to(exchange).with(ROUTING_KEY);
+    public Binding binding() {
+        return BindingBuilder.bind(queue()).to(exchange()).with(ROUTING_KEY);
     }
 
-    // 🔥 LE CONVERTER JSON
+    // JSON converter
     @Bean
-    public Jackson2JsonMessageConverter converter() {
+    public MessageConverter jsonMessageConverter() {
         return new Jackson2JsonMessageConverter();
     }
 
-    // 🔥 LE RABBIT TEMPLATE AVEC LE CONVERTER
+    //  RabbitTemplate avec JSON
     @Bean
     public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory) {
         RabbitTemplate template = new RabbitTemplate(connectionFactory);
-        template.setMessageConverter(converter());
+        template.setMessageConverter(jsonMessageConverter());
         return template;
     }
+
+    @Bean
+    public Queue cancelQueue() {
+    return new Queue(CANCEL_QUEUE, true);
+    }
+
+    @Bean
+    public Binding cancelBinding() {
+    return BindingBuilder.bind(cancelQueue()).to(exchange()).with(CANCEL_ROUTING_KEY);
+    }
+
 }

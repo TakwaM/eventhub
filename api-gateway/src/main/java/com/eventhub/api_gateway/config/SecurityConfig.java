@@ -4,6 +4,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
@@ -12,6 +13,17 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.authentication.HttpStatusServerEntryPoint;
 import reactor.core.publisher.Mono;
+
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+
+// CORS imports
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.reactive.CorsWebFilter;
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
+
+import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebFluxSecurity
@@ -29,23 +41,72 @@ public class SecurityConfig {
 
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .cors().and()
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(new HttpStatusServerEntryPoint(HttpStatus.UNAUTHORIZED))
                 )
                 .authorizeExchange(exchange -> exchange
+
+                        // ---------------------------------------------------------
+                        // CORS preflight (OPTIONS) — doit être en premier
+                        // ---------------------------------------------------------
+                        .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                        // ---------------------------------------------------------
+                        // Actuator
+                        // ---------------------------------------------------------
                         .pathMatchers("/actuator/**").permitAll()
 
-                        .pathMatchers("/users-service/me/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
-                        .pathMatchers("/users-service/admin/**").hasAuthority("ROLE_ADMIN")
-                        .pathMatchers("/users-service/**").hasAuthority("ROLE_ADMIN")
+                       // ---------------------------------------------------------
+                       // RESERVATIONS-SERVICE
+                      // ---------------------------------------------------------
 
-                        .pathMatchers("/events-service/admin/**").hasAuthority("ROLE_ADMIN")
-                        .pathMatchers("/events-service/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+                    // Test public
+                    .pathMatchers("/reservations-service/reservations/test").permitAll()
 
-                        .pathMatchers("/reservations-service/my/**").hasAuthority("ROLE_USER")
-                        .pathMatchers("/reservations-service/admin/**").hasAuthority("ROLE_ADMIN")
-                        .pathMatchers("/reservations-service/**").hasAuthority("ROLE_ADMIN")
+                        // Vérifier si réservé
+                        .pathMatchers(HttpMethod.GET, "/reservations-service/reservations/check")
+                            .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
 
+                        // Réserver
+                        .pathMatchers(HttpMethod.POST, "/reservations-service/reservations")
+                            .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+                        .pathMatchers(HttpMethod.GET, "/reservations-service/reservations/**")
+    .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+
+                        // Voir SES réservations
+                        .pathMatchers(HttpMethod.GET, "/reservations-service/reservations/my")
+                            .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+
+                        // Annuler une réservation
+                        .pathMatchers(HttpMethod.DELETE, "/reservations-service/reservations/**")
+                            .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+
+                        // ADMIN
+                        .pathMatchers("/reservations-service/admin/**")
+                            .hasAuthority("ROLE_ADMIN")
+
+
+                        // ---------------------------------------------------------
+                        // EVENTS-SERVICE (public)
+                        // ---------------------------------------------------------
+                        .pathMatchers("/events-service/events").permitAll()
+                        .pathMatchers("/events-service/events/**").permitAll()
+
+                        // ---------------------------------------------------------
+                        // USERS-SERVICE (protégé)
+                        // ---------------------------------------------------------
+                        .pathMatchers("/users-service/me/**")
+                            .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+                        .pathMatchers("/users-service/admin/**")
+                            .hasAuthority("ROLE_ADMIN")
+                        .pathMatchers("/users-service/**")
+                            .hasAuthority("ROLE_ADMIN")
+
+                        .pathMatchers("/notifications-service/**").authenticated()
+                        // ---------------------------------------------------------
+                        // Default rule : ADMIN ONLY
+                        // ---------------------------------------------------------
                         .anyExchange().access((authMono, ctx) ->
                                 authMono.map(authentication ->
                                         authentication.getAuthorities().stream()
@@ -57,5 +118,33 @@ public class SecurityConfig {
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakReactiveRoleConverter))
                 )
                 .build();
+    }
+
+    // ---------------------------------------------------------
+    // CORS GLOBAL
+    // ---------------------------------------------------------
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public CorsWebFilter corsWebFilter() {
+        CorsConfiguration corsConfig = new CorsConfiguration();
+
+        // Origines autorisées (dev)
+        List<String> allowedOrigins = Arrays.asList("http://localhost:4200", "http://127.0.0.1:4200");
+        corsConfig.setAllowedOrigins(allowedOrigins);
+
+        // Méthodes et headers autorisés
+        corsConfig.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        corsConfig.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "X-Requested-With", "Idempotency-Key"));
+
+        // Exposer explicitement les headers nécessaires au client
+        corsConfig.setExposedHeaders(Arrays.asList("Content-Type", "Content-Length", "Authorization"));
+
+        corsConfig.setAllowCredentials(true);
+        corsConfig.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", corsConfig);
+
+        return new CorsWebFilter(source);
     }
 }

@@ -2,96 +2,191 @@ package com.eventhub.reservations_service.service;
 
 import com.eventhub.reservations_service.model.Reservation;
 import com.eventhub.reservations_service.repository.ReservationRepository;
-import com.eventhub.reservations_service.clients.UserClient;
-import com.eventhub.reservations_service.clients.EventClient;
-import com.eventhub.reservations_service.dto.UserDTO;
-import com.eventhub.reservations_service.dto.EventDTO;
 import com.eventhub.reservations_service.dto.ReservationResponse;
-import com.eventhub.reservations_service.dto.NotificationMessage;
-import com.eventhub.reservations_service.config.RabbitMQConfig;
+import com.eventhub.reservations_service.exception.AlreadyReservedException;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
+
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
-import org.springframework.amqp.core.AmqpTemplate;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import com.eventhub.reservations_service.dto.NotificationMessage;
+import com.eventhub.reservations_service.config.RabbitMQConfig;
+import com.eventhub.reservations_service.dto.EventDTO;
+
+
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class ReservationService {
 
     private final ReservationRepository reservationRepository;
-    private final UserClient userClient;
-    private final EventClient eventClient;
-    private final AmqpTemplate amqpTemplate;
+    private final RestTemplate restTemplate; 
+    private final RabbitTemplate rabbitTemplate;
 
-    public Reservation createReservation(Reservation reservation) {
+    // -------------------------
+    // CREATE RESERVATION
+    // -------------------------
+    @Transactional
+    public Reservation createReservation(Long eventId, String userId, Integer seatsReserved) {
 
-        // 1) Sauvegarder la réservation
-        Reservation saved = reservationRepository.save(reservation);
+    if (existsByEventIdAndUserId(eventId, userId)) {
+        throw new AlreadyReservedException("User already reserved this event");
+    }
 
-        // 2) Construire le message de notification
-        NotificationMessage msg = new NotificationMessage();
-        msg.setUserId(saved.getUserId());
-        msg.setMessage("Votre réservation pour l'événement " + saved.getEventId() + " est confirmée.");
+    Reservation r = new Reservation();
+    r.setEventId(eventId);
+    r.setUserId(userId);
+    r.setSeatsReserved(seatsReserved);
 
-        // 3) Envoyer le message à RabbitMQ
-        amqpTemplate.convertAndSend(
+    try {
+        Reservation saved = reservationRepository.save(r);
+
+        // Récupérer l'événement pour avoir son nom
+        EventDTO event = getEvent(eventId);
+
+        // décrémenter les places
+        decrementEventSeats(eventId, seatsReserved);
+
+        NotificationMessage message = new NotificationMessage(
+                saved.getUserId(),
+                "Votre réservation pour l'événement \"" + event.getTitle() + "\" est confirmée."
+        );
+
+        rabbitTemplate.convertAndSend(
                 RabbitMQConfig.EXCHANGE,
                 RabbitMQConfig.ROUTING_KEY,
-                msg
+                message
         );
 
         return saved;
+
+    } catch (DataIntegrityViolationException ex) {
+        throw new AlreadyReservedException("User already reserved this event");
+    }
     }
 
-    public List<Reservation> getAllReservations() {
-        return reservationRepository.findAll();
+
+    // -------------------------
+    // DECREMENT SEATS
+    // -------------------------
+    private void decrementEventSeats(Long eventId, Integer seats) {
+        try {
+            String url = "http://events-service:8081/events/" + eventId + "/decrement?seats=" + seats;
+            restTemplate.postForObject(url, null, Void.class);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to decrement seats in events-service", e);
+        }
     }
 
-    public Reservation getReservationById(Long id) {
-        return reservationRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
+    // -------------------------
+    // INCREMENT SEATS (ANNULATION)
+    // -------------------------
+    private void incrementEventSeats(Long eventId, Integer seats) {
+        try {
+            String url = "http://events-service:8081/events/" + eventId + "/increment?seats=" + seats;
+            restTemplate.postForObject(url, null, Void.class);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to increment seats in events-service", e);
+        }
     }
 
-    public Reservation updateReservation(Long id, Reservation newRes) {
+    // -------------------------
+    // CANCEL RESERVATION
+    // -------------------------
+    @Transactional
+    public void cancelReservation(Long eventId, String userId) {
+    Reservation r = reservationRepository.findByEventIdAndUserId(eventId, userId)
+            .orElseThrow(() -> new RuntimeException("Reservation not found"));
+
+    reservationRepository.delete(r);
+
+    // Ré-incrémenter les places
+    incrementEventSeats(eventId, r.getSeatsReserved());
+
+    // 🔥 Récupérer l'événement pour avoir son titre
+    EventDTO event = getEvent(eventId);
+
+    NotificationMessage notification = new NotificationMessage();
+    notification.setUserId(userId);
+    notification.setMessage(
+        "Votre réservation pour l'événement \"" + event.getTitle() + "\" a été annulée."
+    );
+    System.out.println("🔥 Envoi du message RabbitMQ ANNULATION...");
+    rabbitTemplate.convertAndSend(
+        RabbitMQConfig.EXCHANGE,
+        RabbitMQConfig.CANCEL_ROUTING_KEY,
+        notification
+    );
+}
+
+
+
+    // -------------------------
+    // HELPERS
+    // -------------------------
+    @Transactional(readOnly = true)
+    public boolean hasReserved(Long eventId, String userId) {
+        return reservationRepository.existsByEventIdAndUserId(eventId, userId);
+    }
+
+    @Transactional(readOnly = true)
+    public ReservationResponse getReservationDetails(Long id) {
+        Reservation r = reservationRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Reservation not found: " + id));
+        return toResponse(r);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReservationResponse> getAllReservations() {
+        return reservationRepository.findAll().stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public Reservation updateReservation(Long id, Reservation updated) {
         Reservation existing = reservationRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Reservation not found: " + id));
 
-        existing.setUserId(newRes.getUserId());
-        existing.setEventId(newRes.getEventId());
-        existing.setSeatsReserved(newRes.getSeatsReserved());
-
+        existing.setSeatsReserved(updated.getSeatsReserved());
         return reservationRepository.save(existing);
     }
 
+    @Transactional
     public void deleteReservation(Long id) {
-        if (!reservationRepository.existsById(id)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found");
-        }
         reservationRepository.deleteById(id);
     }
 
-    public ReservationResponse getReservationDetails(Long id) {
-
-        Reservation reservation = reservationRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
-
-        UserDTO user = userClient.getUserById(reservation.getUserId());
-        EventDTO event = eventClient.getEventById(reservation.getEventId());
-
-        ReservationResponse response = new ReservationResponse();
-        response.setId(reservation.getId());
-        response.setSeatsReserved(reservation.getSeatsReserved());
-        response.setUser(user);
-        response.setEvent(event);
-
-        return response;
+    private ReservationResponse toResponse(Reservation r) {
+        ReservationResponse resp = new ReservationResponse();
+        resp.setId(r.getId());
+        resp.setEventId(r.getEventId());
+        resp.setUserId(r.getUserId());
+        resp.setSeatsReserved(r.getSeatsReserved());
+        resp.setCreatedAt(r.getCreatedAt());
+        return resp;
     }
 
-    public List<Reservation> getReservationsByUserId(Long userId) {
-        return reservationRepository.findByUserId(userId);
+    public boolean existsByEventIdAndUserId(Long eventId, String userId) {
+        return reservationRepository.existsByEventIdAndUserId(eventId, userId);
     }
+
+    @Transactional(readOnly = true)
+    public List<ReservationResponse> getReservationsByUserId(String userId) {
+        if (userId == null) return List.of();
+        return reservationRepository.findByUserId(userId).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+    private EventDTO getEvent(Long eventId) {
+    String url = "http://events-service:8081/events/" + eventId;
+    return restTemplate.getForObject(url, EventDTO.class);
+}
+
 }

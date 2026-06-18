@@ -13,8 +13,10 @@ public class Notification {
     @Id
     private String id;
 
-    private Long userId;
+    private String userId;
     private String message;
     private LocalDateTime timestamp;
-    private boolean read;
+    private boolean read = false;
+    private String userEmail;
+
 }
