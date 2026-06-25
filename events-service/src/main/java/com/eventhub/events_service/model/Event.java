@@ -17,6 +17,6 @@ public class Event {
     private String title;
     private String description;
     private String location;
-    private String date; // on simplifie pour l'instant
+    private String date; 
     private int availableSeats;
 }

@@ -41,6 +41,23 @@ services:
     restart: unless-stopped
     networks:
       - eventhub-net
+  analytics-service:
+    build: ./analytics-service
+    container_name: analytics-service
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - MONGO_URI=mongodb://mongodb:27017/analyticsdb
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    networks:
+      - eventhub-net
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -48,6 +65,12 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
     restart: unless-stopped
     networks:
       - eventhub-net
@@ -224,3 +247,4 @@ volumes:
   postgres_data:
   mongo_data:
   keycloak_data:
+  rabbitmq_data:

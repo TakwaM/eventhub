@@ -90,8 +90,10 @@ public class ReservationController {
         }
     }
 
-   @DeleteMapping("/{id}")
-    public ResponseEntity<?> delete(@PathVariable Long id, @RequestHeader("X-User-Id") String userId) {
+  @DeleteMapping("/{id}")
+public ResponseEntity<?> delete(
+        @PathVariable Long id,
+        @RequestHeader("X-User-Id") String userId) {
 
     Reservation r = reservationRepository.findById(id)
         .orElseThrow(() -> new RuntimeException("Reservation not found"));
@@ -99,7 +101,8 @@ public class ReservationController {
     reservationService.cancelReservation(r.getEventId(), userId);
 
     return ResponseEntity.noContent().build();
-    }
+}
+
 
 
     @GetMapping("/test")

@@ -8,7 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.ResponseEntity;
 
-
+import java.time.LocalDate;
 import java.util.List;
 
 @Service
@@ -48,6 +48,22 @@ public class EventService {
         }
         eventRepository.deleteById(id);
     }
+
+    public long countEventsThisWeek() {
+    LocalDate today = LocalDate.now();
+
+    return eventRepository.findAll().stream()
+            .filter(e -> e.getDate() != null && !e.getDate().isEmpty())
+            .filter(e -> {
+                LocalDate eventDate = LocalDate.parse(e.getDate());
+                return !eventDate.isBefore(today) && !eventDate.isAfter(today.plusDays(7));
+            })
+            .count();
+}
+    public long countEvents() {
+    return eventRepository.count();
+}
+
     
    public ResponseEntity<?> reserveSeat(Long id) {
 

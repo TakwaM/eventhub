@@ -29,6 +29,7 @@ import java.util.List;
 @EnableWebFluxSecurity
 public class SecurityConfig {
 
+
     @Bean
     public Converter<Jwt, Mono<AbstractAuthenticationToken>> keycloakReactiveRoleConverter() {
         return new KeycloakReactiveRoleConverter();
@@ -58,40 +59,45 @@ public class SecurityConfig {
                         .pathMatchers("/actuator/**").permitAll()
 
                        // ---------------------------------------------------------
-                       // RESERVATIONS-SERVICE
-                      // ---------------------------------------------------------
+// RESERVATIONS-SERVICE
+// ---------------------------------------------------------
 
-                    // Test public
-                    .pathMatchers("/reservations-service/reservations/test").permitAll()
+// 🔥 Rendre les stats publiques pour users-service
+.pathMatchers("/reservations-service/admin/reservations/stats/**").permitAll()
 
-                        // Vérifier si réservé
-                        .pathMatchers(HttpMethod.GET, "/reservations-service/reservations/check")
-                            .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+// Test public
+.pathMatchers("/reservations-service/reservations/test").permitAll()
 
-                        // Réserver
-                        .pathMatchers(HttpMethod.POST, "/reservations-service/reservations")
-                            .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
-                        .pathMatchers(HttpMethod.GET, "/reservations-service/reservations/**")
+// Vérifier si réservé
+.pathMatchers(HttpMethod.GET, "/reservations-service/reservations/check")
     .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
 
-                        // Voir SES réservations
-                        .pathMatchers(HttpMethod.GET, "/reservations-service/reservations/my")
-                            .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+// Réserver
+.pathMatchers(HttpMethod.POST, "/reservations-service/reservations")
+    .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
 
-                        // Annuler une réservation
-                        .pathMatchers(HttpMethod.DELETE, "/reservations-service/reservations/**")
-                            .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+// Voir SES réservations
+.pathMatchers(HttpMethod.GET, "/reservations-service/reservations/my")
+    .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
 
-                        // ADMIN
-                        .pathMatchers("/reservations-service/admin/**")
-                            .hasAuthority("ROLE_ADMIN")
+// Annuler une réservation
+.pathMatchers(HttpMethod.DELETE, "/reservations-service/reservations/**")
+    .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+.pathMatchers(HttpMethod.GET, "/reservations-service/reservations")
+    .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
 
+
+// ADMIN (⚠ doit venir APRÈS la règle permitAll)
+.pathMatchers("/reservations-service/admin/**")
+    .hasAuthority("ROLE_ADMIN")
 
                         // ---------------------------------------------------------
                         // EVENTS-SERVICE (public)
                         // ---------------------------------------------------------
                         .pathMatchers("/events-service/events").permitAll()
                         .pathMatchers("/events-service/events/**").permitAll()
+                        .pathMatchers("/events-service/admin/**")
+                            .hasAuthority("ROLE_ADMIN")
 
                         // ---------------------------------------------------------
                         // USERS-SERVICE (protégé)
@@ -102,7 +108,8 @@ public class SecurityConfig {
                             .hasAuthority("ROLE_ADMIN")
                         .pathMatchers("/users-service/**")
                             .hasAuthority("ROLE_ADMIN")
-
+                        .pathMatchers("/analytics/**")
+                            .hasAuthority("ROLE_ADMIN")
                         .pathMatchers("/notifications-service/**").authenticated()
                         // ---------------------------------------------------------
                         // Default rule : ADMIN ONLY

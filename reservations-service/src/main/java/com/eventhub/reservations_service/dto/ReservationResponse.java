@@ -8,6 +8,9 @@ public class ReservationResponse {
     private String userId;
     private Integer seatsReserved;
     private Instant createdAt;
+    private String eventTitle;
+    private String userName;
+
 
     public ReservationResponse() {}
 
@@ -25,4 +28,11 @@ public class ReservationResponse {
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+
+    public String getEventTitle() { return eventTitle; }
+    public void setEventTitle(String eventTitle) { this.eventTitle = eventTitle; }
+
+    public String getUserName() { return userName; }
+    public void setUserName(String userName) { this.userName = userName; }
+
 }
